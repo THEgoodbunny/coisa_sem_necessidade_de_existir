@@ -359,6 +359,26 @@
     }
 }
 
+
+/* Pause/resume do autoscroll do tooltip */
+.ca-floating-tooltip.is-paused .ca-tooltip-inner.ca-autoscroll {
+    animation-play-state: paused;
+}
+
+.ca-floating-tooltip.is-paused {
+    border-color: rgba(192, 132, 252, .45);
+    box-shadow: 0 24px 60px rgba(2, 6, 23, .66), 0 0 0 1px rgba(192, 132, 252, .18);
+}
+
+.ca-hoverable[data-ca-key] {
+    cursor: pointer;
+}
+
+.ca-dot-overall {
+    background: #c084fc;
+    box-shadow: 0 0 14px rgba(192, 132, 252, .55);
+}
+
 @media (max-width: 760px) {
     .ca-card {
         width: min(94vw, 660px);

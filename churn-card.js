@@ -60,6 +60,22 @@
         tooltip.dataset.caOwner = uid;
         document.body.appendChild(tooltip);
 
+        let isPaused = false;
+
+        function setPaused(paused) {
+            isPaused = Boolean(paused);
+            tooltip.classList.toggle("is-paused", isPaused);
+        }
+
+        function togglePause(event) {
+            if (!tooltip.classList.contains("is-visible")) return;
+
+            event.preventDefault();
+            event.stopPropagation();
+
+            setPaused(!isPaused);
+        }
+
         function moveTooltip(event) {
             const tooltipWidth = tooltip.offsetWidth || 390;
             const tooltipHeight = tooltip.offsetHeight || 520;
@@ -85,6 +101,8 @@
 
         function resetAutoScroll() {
             const inner = tooltip.querySelector(".ca-tooltip-inner");
+
+            setPaused(false);
 
             if (!inner) return;
 
@@ -137,6 +155,7 @@
             el.addEventListener("mouseenter", showTooltip);
             el.addEventListener("mousemove", moveTooltip);
             el.addEventListener("mouseleave", hideTooltip);
+            el.addEventListener("click", togglePause);
         });
     }
 
