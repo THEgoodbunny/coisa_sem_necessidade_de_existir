@@ -1,18 +1,65 @@
-# colab_churn_card.py
+# churn_card.py
+# Camada Python do componente Churn Card para Google Colab.
+# Mantém o notebook pequeno: o Colab só carrega este arquivo, calcula o payload e renderiza.
+
 from IPython.display import HTML, display
 from html import escape
 import json
-import math
 import uuid
 
 import numpy as np
 import pandas as pd
+import requests
 
 
-CSS_URL = "https://raw.githubusercontent.com/THEgoodbunny/coisa_sem_necessidade_de_existir/main/churn-card.css"
-JS_URL = "https://raw.githubusercontent.com/THEgoodbunny/coisa_sem_necessidade_de_existir/main/churn-card.js"
+REPO_RAW_BASE = "https://raw.githubusercontent.com/THEgoodbunny/coisa_sem_necessidade_de_existir/main"
+
+CSS_URL = f"{REPO_RAW_BASE}/churn-card.css"
+JS_URL = f"{REPO_RAW_BASE}/churn-card.js"
+
+REQUEST_TIMEOUT = 20
 
 
+# ---------------------------------------------------------------------
+# Helpers de download/renderização
+# ---------------------------------------------------------------------
+def _cache_bust_url(url):
+    sep = "&" if "?" in url else "?"
+    return f"{url}{sep}cb={uuid.uuid4().hex}"
+
+
+def _fetch_text(url, label, timeout=REQUEST_TIMEOUT):
+    final_url = _cache_bust_url(url)
+    response = requests.get(final_url, timeout=timeout)
+
+    if response.status_code != 200:
+        raise RuntimeError(
+            f"Erro ao carregar {label}:\n"
+            f"{final_url}\n\n"
+            f"HTTP {response.status_code}\n"
+            f"{response.text[:500]}"
+        )
+
+    text = response.text
+
+    if not text.strip():
+        raise RuntimeError(f"{label} carregado vazio: {final_url}")
+
+    return text
+
+
+def _safe_script_text(text):
+    # Evita quebrar a tag <script> caso algum conteúdo contenha fechamento literal.
+    return text.replace("</script", "<\\/script")
+
+
+def _safe_json(data):
+    return json.dumps(data, ensure_ascii=False).replace("</", "<\\/")
+
+
+# ---------------------------------------------------------------------
+# Payload estatístico
+# ---------------------------------------------------------------------
 def build_churn_payload(
     df,
     target_col="Churn",
@@ -22,9 +69,6 @@ def build_churn_payload(
 ):
     work = df.copy()
 
-    # -----------------------------
-    # 1. Helpers gerais
-    # -----------------------------
     def resolve_col(alias_list):
         for col in alias_list:
             if col in work.columns:
@@ -69,11 +113,11 @@ def build_churn_payload(
     def fmt_money(value):
         if pd.isna(value):
             return "n/d"
-        s = f"R$ {float(value):,.2f}"
-        return s.replace(",", "X").replace(".", ",").replace("X", ".")
+        text = f"R$ {float(value):,.2f}"
+        return text.replace(",", "X").replace(".", ",").replace("X", ".")
 
-    def normalize_series(s):
-        return s.astype(str).str.strip().str.lower()
+    def normalize_series(series):
+        return series.astype(str).str.strip().str.lower()
 
     def safe_numeric(col):
         if col is None:
@@ -85,9 +129,6 @@ def build_churn_payload(
     for key in ["tenure", "monthly", "total", "senior"]:
         safe_numeric(colmap[key])
 
-    # -----------------------------
-    # 2. Máscaras de Churn
-    # -----------------------------
     if target_col not in work.columns:
         raise ValueError(
             f"Coluna alvo '{target_col}' não encontrada. "
@@ -114,9 +155,6 @@ def build_churn_payload(
     churn_rate = churn_yes / total if total else 0
     retention_rate = retained / total if total else 0
 
-    # -----------------------------
-    # 3. Estatísticas por classe
-    # -----------------------------
     def avg(data, col):
         if col is None or len(data) == 0:
             return np.nan
@@ -131,33 +169,33 @@ def build_churn_payload(
         if col is None or len(data) == 0:
             return np.nan
 
-        s = data[col]
+        series = data[col]
 
-        if pd.api.types.is_numeric_dtype(s):
-            return s.eq(1).mean()
+        if pd.api.types.is_numeric_dtype(series):
+            return series.eq(1).mean()
 
-        return normalize_series(s).isin(["yes", "sim", "true", "1"]).mean()
+        return normalize_series(series).isin(["yes", "sim", "true", "1"]).mean()
 
     def pct_in(data, col, expected_values):
         if col is None or len(data) == 0:
             return np.nan
 
-        expected = {x.lower().strip() for x in expected_values}
+        expected = {str(x).lower().strip() for x in expected_values}
         return normalize_series(data[col]).isin(expected).mean()
 
     def top_value(data, col):
         if col is None or len(data) == 0:
             return None, np.nan
 
-        s = data[col].dropna().astype(str).str.strip()
-        s = s[s.ne("")]
+        series = data[col].dropna().astype(str).str.strip()
+        series = series[series.ne("")]
 
-        if len(s) == 0:
+        if len(series) == 0:
             return None, np.nan
 
-        vc = s.value_counts()
-        label = vc.index[0]
-        share = vc.iloc[0] / len(s)
+        counts = series.value_counts()
+        label = counts.index[0]
+        share = counts.iloc[0] / len(series)
 
         return label, share
 
@@ -172,14 +210,16 @@ def build_churn_payload(
             "monthly_avg": avg(data, colmap["monthly"]),
             "monthly_median": median(data, colmap["monthly"]),
             "total_avg": avg(data, colmap["total"]),
-
             "senior_pct": pct_truthy(data, colmap["senior"]),
             "month_contract_pct": pct_in(data, colmap["contract"], ["month-to-month", "mensal"]),
             "fiber_pct": pct_in(data, colmap["internet"], ["fiber optic", "fibra óptica", "fibra optica"]),
-            "electronic_check_pct": pct_in(data, colmap["payment"], ["electronic check", "cheque eletrônico", "cheque eletronico"]),
+            "electronic_check_pct": pct_in(
+                data,
+                colmap["payment"],
+                ["electronic check", "cheque eletrônico", "cheque eletronico"],
+            ),
             "no_support_pct": pct_in(data, colmap["tech_support"], ["no", "não", "nao"]),
             "no_security_pct": pct_in(data, colmap["online_security"], ["no", "não", "nao"]),
-
             "contract_top": contract_top,
             "contract_share": contract_share,
             "internet_top": internet_top,
@@ -192,9 +232,6 @@ def build_churn_payload(
     churn_stats = collect_stats(churn_data)
     retained_stats = collect_stats(retained_data)
 
-    # -----------------------------
-    # 4. Tooltip HTML
-    # -----------------------------
     def delta_class(diff):
         if pd.isna(diff) or abs(diff) < 1e-12:
             return "neutral"
@@ -242,18 +279,18 @@ def build_churn_payload(
             </div>
         """
 
-    def top_row(label, top, share):
+    def divider():
+        return '<div class="ca-tooltip-divider"></div>'
+
+    def top_row(label, top, share, share_label="da classe"):
         if top is None or pd.isna(share):
             return ""
 
         return row(
             label,
             top,
-            f"<span class='ca-delta ca-neutral'>{escape(fmt_pct(share))} da classe</span>",
+            f"<span class='ca-delta ca-neutral'>{escape(fmt_pct(share))} {escape(share_label)}</span>",
         )
-
-    def divider():
-        return '<div class="ca-tooltip-divider"></div>'
 
     def tooltip_block(class_name, label, count, share, stats, note):
         rows = [
@@ -292,36 +329,12 @@ def build_churn_payload(
             top_row("Internet dominante", stats["internet_top"], stats["internet_share"]),
             top_row("Pagamento dominante", stats["payment_top"], stats["payment_share"]),
             divider(),
-            row(
-                "Cliente sênior",
-                fmt_pct(stats["senior_pct"]),
-                delta_pp(stats["senior_pct"], base_stats["senior_pct"]),
-            ),
-            row(
-                "Contrato mensal",
-                fmt_pct(stats["month_contract_pct"]),
-                delta_pp(stats["month_contract_pct"], base_stats["month_contract_pct"]),
-            ),
-            row(
-                "Fibra óptica",
-                fmt_pct(stats["fiber_pct"]),
-                delta_pp(stats["fiber_pct"], base_stats["fiber_pct"]),
-            ),
-            row(
-                "Electronic check",
-                fmt_pct(stats["electronic_check_pct"]),
-                delta_pp(stats["electronic_check_pct"], base_stats["electronic_check_pct"]),
-            ),
-            row(
-                "Sem suporte técnico",
-                fmt_pct(stats["no_support_pct"]),
-                delta_pp(stats["no_support_pct"], base_stats["no_support_pct"]),
-            ),
-            row(
-                "Sem segurança online",
-                fmt_pct(stats["no_security_pct"]),
-                delta_pp(stats["no_security_pct"], base_stats["no_security_pct"]),
-            ),
+            row("Cliente sênior", fmt_pct(stats["senior_pct"]), delta_pp(stats["senior_pct"], base_stats["senior_pct"])),
+            row("Contrato mensal", fmt_pct(stats["month_contract_pct"]), delta_pp(stats["month_contract_pct"], base_stats["month_contract_pct"])),
+            row("Fibra óptica", fmt_pct(stats["fiber_pct"]), delta_pp(stats["fiber_pct"], base_stats["fiber_pct"])),
+            row("Electronic check", fmt_pct(stats["electronic_check_pct"]), delta_pp(stats["electronic_check_pct"], base_stats["electronic_check_pct"])),
+            row("Sem suporte técnico", fmt_pct(stats["no_support_pct"]), delta_pp(stats["no_support_pct"], base_stats["no_support_pct"])),
+            row("Sem segurança online", fmt_pct(stats["no_security_pct"]), delta_pp(stats["no_security_pct"], base_stats["no_security_pct"])),
         ]
 
         return f"""
@@ -335,38 +348,12 @@ def build_churn_payload(
             <div class="ca-tooltip-note">{escape(note)}</div>
         """
 
-    def top_row_overall(label, top, share):
-        if top is None or pd.isna(share):
-            return ""
-
-        return row(
-            label,
-            top,
-            f"<span class='ca-delta ca-neutral'>{escape(fmt_pct(share))} da base</span>",
-        )
-
     def tooltip_overall_block():
         rows = [
-            row(
-                "Linhas no DF",
-                fmt_int(len(work)),
-                "<span class='ca-delta ca-neutral'>total carregado</span>",
-            ),
-            row(
-                "Clientes válidos",
-                fmt_int(total),
-                "<span class='ca-delta ca-neutral'>com Churn preenchido</span>",
-            ),
-            row(
-                "Churn",
-                fmt_int(churn_yes),
-                f"<span class='ca-delta ca-neutral'>{escape(fmt_pct(churn_rate))} da base</span>",
-            ),
-            row(
-                "Retidos",
-                fmt_int(retained),
-                f"<span class='ca-delta ca-neutral'>{escape(fmt_pct(retention_rate))} da base</span>",
-            ),
+            row("Linhas no DF", fmt_int(len(work)), "<span class='ca-delta ca-neutral'>total carregado</span>"),
+            row("Clientes válidos", fmt_int(total), "<span class='ca-delta ca-neutral'>com Churn preenchido</span>"),
+            row("Churn", fmt_int(churn_yes), f"<span class='ca-delta ca-neutral'>{escape(fmt_pct(churn_rate))} da base</span>"),
+            row("Retidos", fmt_int(retained), f"<span class='ca-delta ca-neutral'>{escape(fmt_pct(retention_rate))} da base</span>"),
             divider(),
             row("Retenção média", f"{fmt_float(base_stats['tenure_avg'])} meses"),
             row("Retenção mediana", f"{fmt_float(base_stats['tenure_median'])} meses"),
@@ -374,9 +361,9 @@ def build_churn_payload(
             row("Cobrança mensal mediana", fmt_money(base_stats["monthly_median"])),
             row("Cobrança total média", fmt_money(base_stats["total_avg"])),
             divider(),
-            top_row_overall("Contrato dominante", base_stats["contract_top"], base_stats["contract_share"]),
-            top_row_overall("Internet dominante", base_stats["internet_top"], base_stats["internet_share"]),
-            top_row_overall("Pagamento dominante", base_stats["payment_top"], base_stats["payment_share"]),
+            top_row("Contrato dominante", base_stats["contract_top"], base_stats["contract_share"], "da base"),
+            top_row("Internet dominante", base_stats["internet_top"], base_stats["internet_share"], "da base"),
+            top_row("Pagamento dominante", base_stats["payment_top"], base_stats["payment_share"], "da base"),
             divider(),
             row("Cliente sênior", fmt_pct(base_stats["senior_pct"])),
             row("Contrato mensal", fmt_pct(base_stats["month_contract_pct"])),
@@ -394,7 +381,10 @@ def build_churn_payload(
 
             {''.join(rows)}
 
-            <div class="ca-tooltip-note">Leitura: resumo estatístico da base inteira usada no card. Linhas com Churn vazio não entram nas proporções de churn/retidos.</div>
+            <div class="ca-tooltip-note">
+                Leitura: resumo estatístico da base inteira usada no card.
+                Linhas com Churn vazio não entram nas proporções de churn/retidos.
+            </div>
         """
 
     tooltip_content = {
@@ -435,63 +425,108 @@ def build_churn_payload(
     }
 
 
-def render_churn_card(payload, css_url=CSS_URL, js_url=JS_URL):
+# ---------------------------------------------------------------------
+# Renderização
+# ---------------------------------------------------------------------
+def render_churn_card(
+    payload,
+    css_url=CSS_URL,
+    js_url=JS_URL,
+    inline_assets=True,
+    timeout=REQUEST_TIMEOUT,
+):
+    """
+    Renderiza o card no Colab.
+
+    Padrão:
+    - baixa CSS/JS via raw.githubusercontent.com usando Python;
+    - injeta tudo inline;
+    - evita cache do jsDelivr;
+    - evita reaproveitar window.ChurnCard antigo.
+    """
     uid = f"churn_{uuid.uuid4().hex[:8]}"
-    cache_bust = uuid.uuid4().hex
-    payload_json = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
+    payload_json = _safe_json(payload)
 
-    sep_css = "&" if "?" in css_url else "?"
-    sep_js = "&" if "?" in js_url else "?"
+    if inline_assets:
+        css_code = _fetch_text(css_url, "CSS", timeout=timeout)
+        js_code = _fetch_text(js_url, "JS", timeout=timeout)
 
-    css_url_final = f"{css_url}{sep_css}cb={cache_bust}"
-    js_url_final = f"{js_url}{sep_js}cb={cache_bust}"
+        if "window.ChurnCard" not in js_code or "render" not in js_code:
+            raise RuntimeError("O JS carregado não parece conter window.ChurnCard.render.")
 
-    html = f"""
-    <link rel="stylesheet" href="{css_url_final}">
+        css_block = f"<style>\n{css_code}\n</style>"
+        js_loader = f"""
+        <script>
+            (() => {{
+                delete window.ChurnCard;
 
-    <div id="{uid}"></div>
+                document.querySelectorAll('.ca-floating-tooltip').forEach(e => e.remove());
+                document.querySelectorAll('script[data-churn-card-js="true"]').forEach(e => e.remove());
 
-    <script>
-        (() => {{
-            const payload = {payload_json};
-            const selector = "#{uid}";
+                {_safe_script_text(js_code)}
 
-            // força remoção da versão antiga
-            delete window.ChurnCard;
-
-            document
-                .querySelectorAll('script[data-churn-card-js="true"]')
-                .forEach(s => s.remove());
-
-            const script = document.createElement("script");
-            script.src = "{js_url_final}";
-            script.dataset.churnCardJs = "true";
-
-            script.onload = () => {{
                 if (!window.ChurnCard || !window.ChurnCard.render) {{
                     console.error("ChurnCard não carregou.");
                     return;
                 }}
 
-                window.ChurnCard.render(selector, payload);
-            }};
+                window.ChurnCard.render("#{uid}", {payload_json});
+            }})();
+        </script>
+        """
+    else:
+        css_block = f'<link rel="stylesheet" href="{_cache_bust_url(css_url)}">'
+        js_url_final = _cache_bust_url(js_url)
 
-            script.onerror = () => {{
-                console.error("Falha ao carregar churn-card.js:", script.src);
-            }};
+        js_loader = f"""
+        <script>
+            (() => {{
+                const payload = {payload_json};
 
-            document.body.appendChild(script);
-        }})();
-    </script>
+                delete window.ChurnCard;
+
+                document.querySelectorAll('.ca-floating-tooltip').forEach(e => e.remove());
+                document.querySelectorAll('script[data-churn-card-js="true"]').forEach(e => e.remove());
+
+                const script = document.createElement("script");
+                script.src = "{js_url_final}";
+                script.dataset.churnCardJs = "true";
+
+                script.onload = () => {{
+                    if (!window.ChurnCard || !window.ChurnCard.render) {{
+                        console.error("ChurnCard não carregou.");
+                        return;
+                    }}
+
+                    window.ChurnCard.render("#{uid}", payload);
+                }};
+
+                script.onerror = () => {{
+                    console.error("Falha ao carregar churn-card.js:", script.src);
+                }};
+
+                document.body.appendChild(script);
+            }})();
+        </script>
+        """
+
+    html = f"""
+    {css_block}
+
+    <div id="{uid}"></div>
+
+    {js_loader}
     """
 
     display(HTML(html))
-    
 
-# Exemplo de uso no Colab:
-#
-# import pandas as pd
-# df = pd.read_csv("/content/churnCLARO(1).csv")
+
+# ---------------------------------------------------------------------
+# Uso mínimo no Colab
+# ---------------------------------------------------------------------
+# import requests
+# url = "https://raw.githubusercontent.com/THEgoodbunny/coisa_sem_necessidade_de_existir/main/churn_card.py"
+# exec(requests.get(url).text, globals())
 #
 # payload = build_churn_payload(df)
 # render_churn_card(payload)
