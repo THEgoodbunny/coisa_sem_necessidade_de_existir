@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 
 
-CSS_URL = "https://cdn.jsdelivr.net/gh/THEgoodbunny/coisa_sem_necessidade_de_existir@main/churn-card.css"
-JS_URL = "https://cdn.jsdelivr.net/gh/THEgoodbunny/coisa_sem_necessidade_de_existir@main/churn-card.js"
+CSS_URL = "https://raw.githubusercontent.com/THEgoodbunny/coisa_sem_necessidade_de_existir/main/churn-card.css"
+JS_URL = "https://raw.githubusercontent.com/THEgoodbunny/coisa_sem_necessidade_de_existir/main/churn-card.js"
 
 
 def build_churn_payload(
