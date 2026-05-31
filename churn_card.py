@@ -437,10 +437,17 @@ def build_churn_payload(
 
 def render_churn_card(payload, css_url=CSS_URL, js_url=JS_URL):
     uid = f"churn_{uuid.uuid4().hex[:8]}"
-    payload_json = json.dumps(payload, ensure_ascii=False)
+    cache_bust = uuid.uuid4().hex
+    payload_json = json.dumps(payload, ensure_ascii=False).replace("</", "<\\/")
+
+    sep_css = "&" if "?" in css_url else "?"
+    sep_js = "&" if "?" in js_url else "?"
+
+    css_url_final = f"{css_url}{sep_css}cb={cache_bust}"
+    js_url_final = f"{js_url}{sep_js}cb={cache_bust}"
 
     html = f"""
-    <link rel="stylesheet" href="{css_url}">
+    <link rel="stylesheet" href="{css_url_final}">
 
     <div id="{uid}"></div>
 
@@ -449,34 +456,37 @@ def render_churn_card(payload, css_url=CSS_URL, js_url=JS_URL):
             const payload = {payload_json};
             const selector = "#{uid}";
 
-            const doRender = () => {{
-                if (!window.ChurnCard || !window.ChurnCard.render) return;
+            // força remoção da versão antiga
+            delete window.ChurnCard;
+
+            document
+                .querySelectorAll('script[data-churn-card-js="true"]')
+                .forEach(s => s.remove());
+
+            const script = document.createElement("script");
+            script.src = "{js_url_final}";
+            script.dataset.churnCardJs = "true";
+
+            script.onload = () => {{
+                if (!window.ChurnCard || !window.ChurnCard.render) {{
+                    console.error("ChurnCard não carregou.");
+                    return;
+                }}
+
                 window.ChurnCard.render(selector, payload);
             }};
 
-            if (window.ChurnCard && window.ChurnCard.render) {{
-                doRender();
-                return;
-            }}
+            script.onerror = () => {{
+                console.error("Falha ao carregar churn-card.js:", script.src);
+            }};
 
-            const existingScript = document.querySelector('script[data-churn-card-js="true"]');
-
-            if (existingScript) {{
-                existingScript.addEventListener("load", doRender, {{ once: true }});
-                return;
-            }}
-
-            const script = document.createElement("script");
-            script.src = "{js_url}";
-            script.dataset.churnCardJs = "true";
-            script.onload = doRender;
             document.body.appendChild(script);
         }})();
     </script>
     """
 
     display(HTML(html))
-
+    
 
 # Exemplo de uso no Colab:
 #
