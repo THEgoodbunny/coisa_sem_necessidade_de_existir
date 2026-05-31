@@ -9,8 +9,8 @@ import numpy as np
 import pandas as pd
 
 
-CSS_URL = "https://cdn.jsdelivr.net/gh/SEU_USUARIO/churn-card@main/churn-card.css"
-JS_URL = "https://cdn.jsdelivr.net/gh/SEU_USUARIO/churn-card@main/churn-card.js"
+CSS_URL = "https://cdn.jsdelivr.net/gh/THEgoodbunny/coisa_sem_necessidade_de_existir@main/churn-card.css"
+JS_URL = "https://cdn.jsdelivr.net/gh/THEgoodbunny/coisa_sem_necessidade_de_existir@main/churn-card.js"
 
 
 def build_churn_payload(
@@ -335,7 +335,70 @@ def build_churn_payload(
             <div class="ca-tooltip-note">{escape(note)}</div>
         """
 
+    def top_row_overall(label, top, share):
+        if top is None or pd.isna(share):
+            return ""
+
+        return row(
+            label,
+            top,
+            f"<span class='ca-delta ca-neutral'>{escape(fmt_pct(share))} da base</span>",
+        )
+
+    def tooltip_overall_block():
+        rows = [
+            row(
+                "Linhas no DF",
+                fmt_int(len(work)),
+                "<span class='ca-delta ca-neutral'>total carregado</span>",
+            ),
+            row(
+                "Clientes válidos",
+                fmt_int(total),
+                "<span class='ca-delta ca-neutral'>com Churn preenchido</span>",
+            ),
+            row(
+                "Churn",
+                fmt_int(churn_yes),
+                f"<span class='ca-delta ca-neutral'>{escape(fmt_pct(churn_rate))} da base</span>",
+            ),
+            row(
+                "Retidos",
+                fmt_int(retained),
+                f"<span class='ca-delta ca-neutral'>{escape(fmt_pct(retention_rate))} da base</span>",
+            ),
+            divider(),
+            row("Retenção média", f"{fmt_float(base_stats['tenure_avg'])} meses"),
+            row("Retenção mediana", f"{fmt_float(base_stats['tenure_median'])} meses"),
+            row("Cobrança mensal média", fmt_money(base_stats["monthly_avg"])),
+            row("Cobrança mensal mediana", fmt_money(base_stats["monthly_median"])),
+            row("Cobrança total média", fmt_money(base_stats["total_avg"])),
+            divider(),
+            top_row_overall("Contrato dominante", base_stats["contract_top"], base_stats["contract_share"]),
+            top_row_overall("Internet dominante", base_stats["internet_top"], base_stats["internet_share"]),
+            top_row_overall("Pagamento dominante", base_stats["payment_top"], base_stats["payment_share"]),
+            divider(),
+            row("Cliente sênior", fmt_pct(base_stats["senior_pct"])),
+            row("Contrato mensal", fmt_pct(base_stats["month_contract_pct"])),
+            row("Fibra óptica", fmt_pct(base_stats["fiber_pct"])),
+            row("Electronic check", fmt_pct(base_stats["electronic_check_pct"])),
+            row("Sem suporte técnico", fmt_pct(base_stats["no_support_pct"])),
+            row("Sem segurança online", fmt_pct(base_stats["no_security_pct"])),
+        ]
+
+        return f"""
+            <div class="ca-tooltip-title">
+                <span class="ca-dot ca-dot-overall"></span>
+                Perfil estatístico: Base geral
+            </div>
+
+            {''.join(rows)}
+
+            <div class="ca-tooltip-note">Leitura: resumo estatístico da base inteira usada no card. Linhas com Churn vazio não entram nas proporções de churn/retidos.</div>
+        """
+
     tooltip_content = {
+        "overall": tooltip_overall_block(),
         "retained": tooltip_block(
             "retained",
             "Perfil estatístico: Retidos",
@@ -367,6 +430,7 @@ def build_churn_payload(
         "retained_label": fmt_int(retained),
         "churn_rate_label": fmt_pct(churn_rate),
         "retention_rate_label": fmt_pct(retention_rate),
+        "badge_label": "Base geral",
         "tooltip": tooltip_content,
     }
 

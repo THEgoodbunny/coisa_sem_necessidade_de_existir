@@ -49,3 +49,7 @@ render_churn_card(payload)
 ## Observação
 
 O JS não calcula estatística. Ele só renderiza. O Python monta um JSON pequeno com métricas, rótulos e HTML do tooltip.
+
+## Tooltip geral
+
+O badge superior `Base geral` usa `data-ca-key="overall"` e exibe as estatísticas gerais do DataFrame.

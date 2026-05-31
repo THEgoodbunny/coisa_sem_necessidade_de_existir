@@ -179,6 +179,7 @@
 
         const title = escapeHtml(data.title || "Visão geral de clientes");
         const eyebrow = escapeHtml(data.eyebrow || "Churn Analytics");
+        const badgeLabel = escapeHtml(data.badge_label || "Base geral");
 
         const churnRateLabel = data.churn_rate_label || formatPct(churnRate);
         const retentionRateLabel = data.retention_rate_label || formatPct(retentionRate);
@@ -200,8 +201,8 @@
                         <div class="ca-title">${title}</div>
                     </div>
 
-                    <div class="ca-badge ca-hoverable" data-ca-key="churn">
-                        Churn ativo
+                    <div class="ca-badge ca-overall-badge ca-hoverable" data-ca-key="overall">
+                        ${badgeLabel}
                     </div>
                 </div>
 
